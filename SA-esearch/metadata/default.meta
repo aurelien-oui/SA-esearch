@@ -1,0 +1,21 @@
+# Permissions par défaut de l'app.
+# La commande esearch est exportée globalement ; l'écriture (conf, secrets)
+# est réservée aux admins. Restreindre la lecture à un rôle dédié si besoin :
+#   access = read : [ esearch_user ], write : [ admin ]
+
+[]
+access = read : [ * ], write : [ admin, sc_admin ]
+export = system
+
+# Page Configuration : réservée à ceux qui peuvent gérer profils et secrets
+# (écriture de l'app et lecture de storage/passwords). Ouverte à tous, elle
+# affichait à un non-admin chaque secret « ⚠ manquant » — faux : il ne peut
+# simplement pas les lire — et des boutons voués au refus. Splunk retire aussi
+# l'entrée du menu pour les autres rôles.
+[views/esearch_setup]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
+# Aide administrateur (1.26.2) : mêmes lecteurs que la page Configuration, dont
+# elle documente les réglages. Absente du menu des autres rôles.
+[views/esearch_aide_admin]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]

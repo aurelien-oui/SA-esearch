@@ -1,0 +1,102 @@
+<dashboard version="1.1">
+  <label>Aide</label>
+  <description>Utiliser | esearch : arguments, profils, limites, debug.</description>
+
+  <!-- Documentation utilisateur (1.26.2, remplace la page Exemples). Texte
+       statique : aucune recherche. Dans un panneau <html>, le signe dollar s'écrit doublé
+       (sinon Simple XML y voit un token). Chaque option de la commande y
+       figure. -->
+  <row>
+    <panel>
+      <html>
+        <h2>Principe</h2>
+        <p><code>| esearch</code> interroge Elasticsearch <b>en direct</b> et rend les documents comme événements Splunk, sans les indexer. Deux langages : <b>Lucene</b> (<code>query=</code>, paginé jusqu'à <code>limit=</code>) ou <b>ES|QL</b> (<code>esql=</code>, une seule requête). La connexion passe par un <b>profil</b> défini par l'administrateur : vous n'avez jamais à connaître l'hôte ni le secret.</p>
+        <pre>| esearch index="logs-*" query="status:500" limit=1000
+| esearch esql="FROM logs-* | STATS n = COUNT(*) BY host.name"
+| esearch index="logs-*" query="*" earliest=-1h@h latest=@h sort=desc
+| esindices pattern="logs-*"          (cibles interrogeables du profil)
+| esprofiles                          (vos profils, le défaut en tête)</pre>
+        <p><code>| esindices</code> prend <code>profile=</code>, <code>pattern=</code> et les mêmes options de transport que <code>| esearch</code>, avec des défauts plus courts : 1 reprise et 15 s de lecture, pour qu'un listing réponde vite.</p>
+        <p>Dans la barre de recherche, commencez à taper <code>| esearch</code> : l'assistant de Splunk affiche la description de la commande et un exemple.</p>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <h2>Arguments de <code>| esearch</code></h2>
+        <table class="table table-condensed table-striped">
+          <thead><tr><th></th><th>Option</th><th>Défaut</th><th>Rôle</th></tr></thead>
+          <tbody>
+            <tr><td rowspan="2"><b>Connexion</b></td><td><code>profile</code></td><td>votre premier profil</td><td>profil de connexion (voir « Profils »)</td></tr>
+            <tr><td><code>es_host</code></td><td>—</td><td>mode ad hoc : URL d'Elasticsearch interrogée directement, sans profil ; désactivé par défaut par l'administrateur. Des identifiants écrits dans la recherche (<code>user=</code>, <code>password=</code>, <code>apikey=</code>, <code>compte:mdp@</code>) restent en clair dans les journaux de Splunk : préférez un profil</td></tr>
+            <tr><td rowspan="10"><b>Requête</b></td><td><code>index</code></td><td>tous</td><td>index, alias ou data stream, jokers admis (<code>logs-*</code>, <code>a,b</code>). Lucene seulement : en ES|QL, l'index est dans <code>FROM</code></td></tr>
+            <tr><td><code>query</code></td><td>requis (ou <code>esql</code>)</td><td>requête Lucene (query_string) ; <code>"*"</code> pour tout</td></tr>
+            <tr><td><code>esql</code></td><td>—</td><td>requête ES|QL, à la place de <code>query</code>. Chaînes entre guillemets doubles, écrits <code>\"</code> en SPL</td></tr>
+            <tr><td><code>limit</code></td><td>100</td><td>nombre maximal de résultats, plafonné par l'administrateur</td></tr>
+            <tr><td><code>sort</code></td><td>none</td><td>tri sur le champ date : <code>none</code> (ordre de stockage), <code>asc</code>, <code>desc</code> ; refusé si le champ n'a pas un type triable commun aux index visés (date ici, texte là)</td></tr>
+            <tr><td><code>timefield</code></td><td>celui du profil</td><td>champ date qui borne la période et donne <code>_time</code></td></tr>
+            <tr><td><code>earliest</code></td><td rowspan="2">sélecteur de temps</td><td rowspan="2">période écrite dans la recherche, <b>prioritaire</b> sur le sélecteur : <code>-1h@h</code>, <code>@d</code>, époque, ISO 8601, <code>10/01/2026:00:00:00</code>. <code>earliest</code> seul va jusqu'à maintenant ; <code>latest</code> seul part du début des temps</td></tr>
+            <tr><td><code>latest</code></td></tr>
+            <tr><td><code>_source_include</code>, <code>_source_exclude</code></td><td>—</td><td>champs ramenés ou écartés, séparés par des virgules (Lucene ; en ES|QL : <code>KEEP</code> / <code>DROP</code>)</td></tr>
+            <tr><td><code>es_metadata</code></td><td>false</td><td><code>true</code> : ajoute <code>es_index</code> et <code>es_id</code> (Lucene). En ES|QL : <code>FROM … METADATA _index, _id</code></td></tr>
+            <tr><td rowspan="5"><b>Lookups</b></td><td><code>lookup_include</code>, <code>lookup_exclude</code></td><td>—</td><td>lookups Splunk qui gardent ou retirent des documents : une ligne = ET de ses colonnes, plusieurs lignes = OU</td></tr>
+            <tr><td><code>inclusion_type</code>, <code>exclusion_type</code></td><td>and</td><td>combinaison de plusieurs lookups (<code>and</code> / <code>or</code>)</td></tr>
+            <tr><td><code>lookup_fields_keep</code>, <code>lookup_fields_ignore</code></td><td>toutes</td><td>colonnes de lookup retenues ou écartées (motifs <code>*</code>)</td></tr>
+            <tr><td><code>lookup_mode</code></td><td>lucene</td><td><code>terms</code> : valeurs exactes, pour les grandes listes (jusqu'à 65 536 par lookup). Chaque lookup ne doit garder <b>qu'une colonne</b> (choisie avec <code>lookup_fields_keep</code>) et les jokers sont refusés ; sinon, <code>lucene</code></td></tr>
+            <tr><td><code>lookup_stage</code></td><td>source</td><td>ES|QL : <code>source</code> filtre les documents, <code>result</code> filtre le résultat (après <code>STATS</code>…). Les marqueurs <code>$$lookup$$</code>, <code>$$lookup_include$$</code>, <code>$$lookup_exclude$$</code> placent les lookups à un endroit précis de la requête</td></tr>
+            <tr><td><b>Debug</b></td><td><code>debug</code>, <code>debug_tag</code></td><td>false</td><td>voir « Debug »</td></tr>
+            <tr><td rowspan="2"><b>Transport</b></td><td><code>retry_count</code>, <code>backoff_base</code></td><td>3 / 0,5 s</td><td>reprises sur connexion impossible ou Elasticsearch saturé (429/503), au plus 5 / 1 s ; jamais d'une recherche partie sans réponse</td></tr>
+            <tr><td><code>timeout_connect</code>, <code>timeout_read</code></td><td>5 / 30 s</td><td>délai de connexion, 30 s au plus ; délai de lecture, plafonné par l'administrateur</td></tr>
+          </tbody>
+        </table>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <h2>Profils</h2>
+        <ul>
+          <li>Un profil = un Elasticsearch, une identité (clé API, compte) et les rôles Splunk qui peuvent l'utiliser. Les secrets restent côté serveur.</li>
+          <li><code>| esprofiles</code> liste <b>vos</b> profils dans l'ordre fixé par l'administrateur : sans <code>profile=</code>, le premier est utilisé (la recherche le signale).</li>
+          <li>« profil inconnu ou non autorisé » : le profil n'existe pas ou ne vous est pas ouvert — le message liste ceux que vous pouvez utiliser.</li>
+          <li>Aucun profil, ou « capability esearch_run requise » : demandez à un administrateur le rôle <code>esearch_user</code> ou l'accès à un profil.</li>
+          <li>Ce que vous voyez dépend aussi des droits de l'identité du profil <b>côté Elasticsearch</b> : un index refusé donne une erreur 403, un motif sans index autorisé donne 0 résultat avec un avertissement.</li>
+        </ul>
+      </html>
+    </panel>
+    <panel>
+      <html>
+        <h2>Debug</h2>
+        <ul>
+          <li><code>debug=true</code> : la requête <b>réellement envoyée</b> à Elasticsearch (méthode, URL, corps JSON, lookups résolus) s'affiche en avertissement et dans le journal. Page Query : option « Debug — Oui », bloc « Requête envoyée ».</li>
+          <li><code>debug_tag=enquete-42</code> (avec <code>debug=true</code>) : étiquette pour retrouver la recherche ; lignes marquées <code>[debug sid=… debug_tag=…]</code> dans <code>index=_internal sourcetype=esearch:log:debug_search</code> (administrateurs).</li>
+          <li>Une recherche planifiée n'affiche pas la requête (ses messages peuvent être vus par d'autres) ; elle reste au journal.</li>
+          <li>Listes longues : la requête affichée abrège « [...] et X de plus ».</li>
+        </ul>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <h2>Limites à connaître</h2>
+        <table class="table table-condensed table-striped">
+          <tbody>
+            <tr><td><b>Volume</b></td><td><code>limit</code> est plafonné par l'administrateur ; « résultats tronqués à N (total côté Elasticsearch : M) » le signale ; le total est exact jusqu'à 10 000 (ou <code>limit</code> + 1 si plus grand), au-delà il s'écrit « M+ ». Une réponse trop volumineuse d'Elasticsearch est refusée (« réponse trop volumineuse ») : réduire <code>limit</code> ou les champs (<code>_source_include</code>).</td></tr>
+            <tr><td><b>Requête Lucene</b></td><td>taille et imbrication des parenthèses bornées (« requête trop longue », « trop imbriquée ») ; « trop de clauses » : préfixer les termes de leur champ (<code>champ:valeur</code>). Sur OpenSearch, une query_string est limitée à 32 000 caractères par défaut.</td></tr>
+            <tr><td><b>ES|QL</b></td><td>une seule requête, <b>10 000 lignes</b> au plus (coupe annoncée) : agréger (<code>STATS</code>) ou utiliser <code>query=</code>. Champs <code>nested</code> jamais rendus. Un champ qui n'a pas le même type dans tous les index visés (fréquent avec <code>FROM *</code>) revient vide : le convertir, <code>EVAL x = TO_DATETIME(x)</code>. Multivalués triés et dédoublonnés. Une apostrophe hors chaîne est refusée.</td></tr>
+            <tr><td><b>Versions</b></td><td>ES|QL : Elasticsearch 8.11+ (ni 7.x ni OpenSearch) ; lookups insérés dans la requête : 8.15+ ; <code>METADATA</code> : <code>FROM x [METADATA _id]</code> en 8.11–8.12, sans crochets à partir de 8.13 (refusés en 9.5).</td></tr>
+            <tr><td><b>Période</b></td><td><code>earliest</code> inclus, <code>latest</code> exclu, à la milliseconde. Un index sans le champ date du profil ne rend rien sur une période (avertissement qui le nomme ; « Toute période » le rend) : le préciser avec <code>timefield=</code>. Champ date en nombre : secondes et millisecondes prises en compte avec <code>query=</code>. Champ date en texte (<code>keyword</code>) : la période le compare comme du texte, résultats peu fiables (avertissement).</td></tr>
+            <tr><td><b>Date</b></td><td><code>_time</code> vient du champ date. Mappé en date dans Elasticsearch, il est décodé par Elasticsearch, quel que soit son format ; sinon (keyword, texte), il doit être en ISO 8601 ou en époque (secondes, ms, µs ou ns). Une date absente ou illisible laisse <code>_time</code> vide : <code>timechart</code>, <code>bin</code> et la timeline ignorent l'événement ; leur nombre est annoncé.</td></tr>
+            <tr><td><b>Champs</b></td><td><code>_time</code>, <code>_raw</code>, <code>tag</code>, <code>eventtype</code>… venant d'Elasticsearch sont préfixés <code>es_</code> ; booléens rendus comme dans <code>_raw</code> (<code>true</code> / <code>false</code>). Les objets de connaissance Splunk (CIM, tags) ne s'appliquent pas aux résultats en direct.</td></tr>
+          </tbody>
+        </table>
+      </html>
+    </panel>
+  </row>
+</dashboard>

@@ -1,0 +1,16 @@
+SA-esearch
+Copyright 2026 aurelien-oui
+
+Licensed under the Apache License, Version 2.0 (see the LICENSE file).
+
+Independent project, not affiliated with, sponsored or endorsed by Elastic,
+Splunk or the OpenSearch project. Elasticsearch is a trademark of
+Elasticsearch B.V., registered in the U.S. and in other countries. Splunk,
+OpenSearch and other names are trademarks of their respective owners.
+
+This product bundles third-party software, each distributed unmodified under
+its own license. Their license texts are in the LICENSES directory (index:
+LICENSES/README.txt). Notices carried over from bundled components:
+
+  Requests (bin/lib/requests)
+  Copyright 2019 Kenneth Reitz

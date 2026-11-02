@@ -1,0 +1,250 @@
+<dashboard version="1.1" script="setup.js" stylesheet="setup.css">
+  <label>Elasticsearch Query — Configuration</label>
+  <description>Gérer les profils de connexion Elasticsearch, leur ordre de priorité et leurs secrets (chiffrés via storage/passwords), et les réglages globaux. Chaque réglage est expliqué dans la page « Aide administrateur ».</description>
+  <row>
+    <panel>
+      <html>
+        <div id="esearch-setup">
+          <div id="esearch-msg" class="esearch-msg" style="display:none"></div>
+
+          <!-- Deux onglets (1.21.0) : jusqu'ici, une seule page de ~8 écrans, les
+               réglages empilés sans regroupement, les profils et leur ordre de
+               priorité dans deux blocs distincts, et le formulaire d'édition tout
+               en bas. Les onglets ne font que masquer une section : tous les
+               champs restent dans la page (setup.js les lit et les écrit). -->
+          <div class="esearch-onglets" role="tablist">
+            <button type="button" role="tab" id="t-profils" data-onglet="profils" aria-selected="true">Profils <span id="t-nb" class="esearch-note"></span><span class="esearch-sale" id="t-profils-sale"></span></button>
+            <button type="button" role="tab" id="t-reglages" data-onglet="reglages" aria-selected="false">Réglages globaux<span class="esearch-sale" id="t-reglages-sale"></span></button>
+          </div>
+
+          <div id="o-profils" class="esearch-onglet" role="tabpanel" aria-labelledby="t-profils">
+            <div class="esearch-barre">
+              <input type="text" id="p-filtre" placeholder="Filtrer les profils (nom, hôte, rôle)" aria-label="Filtrer les profils"/>
+              <button type="button" id="p-verif">Vérifier pour un rôle</button>
+              <button type="button" id="p-nouveau" class="btn-primary">Nouveau profil</button>
+            </div>
+
+            <div id="esearch-verif" class="esearch-verif" style="display:none">
+              <b>Profil par défaut d'un utilisateur</b> — cochez ses rôles ; les rôles hérités sont pris en compte. Les recherches partagées de propriétaire nobody s'exécutent en <code>admin</code>.
+              <div id="esearch-verif-roles" class="esearch-roles-verif"></div>
+              <div id="esearch-verif-res" class="esearch-verif-res"></div>
+            </div>
+
+            <p class="esearch-note">L'ordre de cette liste est l'<b>ordre de priorité</b> : une recherche sans <code>profile=</code> utilise le premier profil que l'utilisateur a le droit d'utiliser, et le menu Profil de la page Query suit le même ordre. Un profil créé se place en fin de liste.</p>
+
+            <div id="o-barre" class="esearch-barre-ordre" style="display:none">
+              <span>Ordre modifié, pas encore appliqué.</span>
+              <button type="button" id="o-save" class="btn-primary">Enregistrer l'ordre</button>
+              <button type="button" id="o-annule">Annuler</button>
+            </div>
+            <div id="esearch-msg-ordre" class="esearch-msg" style="display:none"></div>
+            <div id="esearch-msg-profils" class="esearch-msg" style="display:none"></div>
+
+            <table id="esearch-profiles">
+              <thead>
+                <tr><th>Rang</th><th>Profil</th><th>Hôte ES</th><th>Auth</th><th>TLS</th><th>Secret</th><th>Accès</th><th></th></tr>
+              </thead>
+              <tbody><tr><td colspan="8">Chargement…</td></tr></tbody>
+            </table>
+
+            <div id="esearch-orphelins" class="alert alert-warning" style="display:none"></div>
+            <p class="esearch-note">Les secrets sont stockés chiffrés par Splunk (storage/passwords, realm <code>esearch:&lt;profil&gt;</code>) — jamais en clair dans un fichier .conf.</p>
+
+            <!-- Éditeur de profil : déplacé par setup.js sous la ligne éditée (ou
+                 en tête de liste pour un nouveau profil). Rangé ici, fermé. -->
+            <div id="esearch-parking" style="display:none">
+              <div id="esearch-editeur">
+                <h3 id="esearch-form-title">Nouveau profil</h3>
+                <form id="esearch-form" onsubmit="return false;">
+                  <input type="hidden" id="f-editing" value=""/>
+                  <fieldset class="esearch-groupe">
+                    <legend>Connexion</legend>
+                    <div class="esearch-grille">
+                      <label>Nom du profil
+                        <input type="text" id="f-name" placeholder="prod" pattern="[A-Za-z0-9_.-]+" required="required"/>
+                      </label>
+                      <label>Hôte Elasticsearch
+                        <input type="text" id="f-host" placeholder="https://es.example.com:9200" required="required"/>
+                      </label>
+                      <label>Champ temps
+                        <input type="text" id="f-timefield" placeholder="@timestamp"/>
+                      </label>
+                      <label>Index proposés dans la page Query
+                        <input type="text" id="f-indexpattern" placeholder="* (toutes les cibles visibles)"/>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <fieldset class="esearch-groupe">
+                    <legend>TLS et certificats</legend>
+                    <div class="esearch-grille">
+                      <label>Vérification TLS
+                        <select id="f-verify"><option value="true">activée (recommandé)</option><option value="false">désactivée</option></select>
+                      </label>
+                      <label>Bundle CA (chemin PEM, optionnel)
+                        <input type="text" id="f-ca" placeholder="$$SPLUNK_HOME/etc/auth/esearch/ca.pem"/>
+                      </label>
+                      <label>Certificat client (mTLS, optionnel)
+                        <input type="text" id="f-clientcert" placeholder="$$SPLUNK_HOME/etc/auth/esearch/client.pem"/>
+                      </label>
+                      <label>Clé client (mTLS, optionnel)
+                        <input type="text" id="f-clientkey" placeholder="$$SPLUNK_HOME/etc/auth/esearch/client.key"/>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <fieldset class="esearch-groupe">
+                    <legend>Authentification</legend>
+                    <div class="esearch-grille">
+                      <label>Type d'authentification
+                        <select id="f-authtype">
+                          <option value="none">aucune</option>
+                          <option value="basic">basic (utilisateur / mot de passe)</option>
+                          <option value="apikey">clé API</option>
+                        </select>
+                      </label>
+                      <label id="f-username-row" style="display:none">Nom d'utilisateur (basic)
+                        <input type="text" id="f-username"/>
+                      </label>
+                      <label id="f-secret-row" style="display:none">Secret (mot de passe ou clé API)
+                        <input type="password" id="f-secret" placeholder="laisser vide pour ne pas modifier"/>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <fieldset id="f-acces-row" class="esearch-acces esearch-groupe">
+                    <legend>Accès — qui peut utiliser ce profil ? (choix obligatoire)</legend>
+                    <label class="esearch-choix"><input type="radio" name="f-acces" value="admin"/>Administrateurs seulement</label>
+                    <label class="esearch-choix"><input type="radio" name="f-acces" value="*"/>Tous les porteurs de la capability esearch_run</label>
+                    <label class="esearch-choix"><input type="radio" name="f-acces" value="roles"/>Seulement les rôles cochés (et les administrateurs)</label>
+                    <div id="f-roles" class="esearch-roles" style="display:none"></div>
+                    <p class="esearch-note">Vaut pour tous les profils, avec ou sans authentification. Les rôles hérités comptent. Les administrateurs passent toujours, et donc aussi les recherches partagées de propriétaire nobody, qui s'exécutent en administrateur : pour les restreindre, limiter les droits de l'identité Elasticsearch du profil (OPERATIONS § 5).</p>
+                  </fieldset>
+                  <fieldset class="esearch-groupe">
+                    <legend>Recherche</legend>
+                    <div class="esearch-grille">
+                      <label>Pagination
+                        <select id="f-pagination"><option value="">(défaut : auto)</option><option value="auto">auto</option><option value="pit">pit</option><option value="scroll">scroll</option></select>
+                      </label>
+                      <label>Plafond de résultats de ce profil (optionnel — remplace max_limit)
+                        <input type="text" inputmode="numeric" id="f-maxlimit" placeholder="(réglage global)"/>
+                      </label>
+                      <label>ES|QL : mode des requêtes <code>esql_mode</code>
+                        <select id="f-esqlmode"><option value="">synchrone (défaut)</option><option value="sync">synchrone</option><option value="async">asynchrone — Elasticsearch 8.13 minimum</option></select>
+                      </label>
+                      <label>ES|QL : colonnes <code>X.keyword</code> en double (optionnel — remplace le réglage global)
+                        <select id="f-esqlkeyword"><option value="">(réglage global)</option><option value="true">masquées si X est rendu</option><option value="false">toutes rendues</option></select>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <div class="esearch-actions">
+                    <button type="button" id="f-save" class="btn-primary">Enregistrer</button>
+                    <button type="button" id="f-reset">Annuler</button>
+                  </div>
+                  <div id="esearch-msg-form" class="esearch-msg" style="display:none"></div>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div id="o-reglages" class="esearch-onglet" role="tabpanel" aria-labelledby="t-reglages" hidden="hidden">
+            <!-- Réglages groupés par USAGE (1.26.3, décision de l'utilisateur) ;
+                 l'Aide administrateur suit exactement ces cartes. Les protections
+                 sont réunies : c'est le bloc à consulter si un nœud tombe. -->
+            <div id="esearch-settings" class="esearch-cartes">
+              <fieldset class="esearch-carte">
+                <legend>Résultats et pagination</legend>
+                <label>Plafond de résultats d'une recherche <code>max_limit</code> — un profil peut le surcharger
+                  <input type="text" inputmode="numeric" id="s-max_limit" placeholder="50000"/>
+                </label>
+                <label>Résultats proposés dans la page Query <code>default_limit</code>
+                  <input type="text" inputmode="numeric" id="s-default_limit" placeholder="100"/>
+                </label>
+                <label>Pagination au-delà de 10 000 résultats <code>pagination</code> — auto : PIT, repli scroll
+                  <select id="s-pagination"><option value="auto">auto</option><option value="pit">pit</option><option value="scroll">scroll</option></select>
+                </label>
+                <label>Contexte de pagination entre deux pages <code>page_keep_alive</code> — 30s, 2m, 5m… ; à augmenter si « le contexte de pagination a expiré »
+                  <input type="text" id="s-page_keep_alive" placeholder="2m"/>
+                </label>
+              </fieldset>
+              <fieldset class="esearch-carte">
+                <legend>Protections du cluster et du search head</legend>
+                <label>Requête Lucene : taille maximale, en octets <code>query_max_bytes</code> — lookups insérés compris (1 024 à 2 147 483 647)
+                  <input type="text" inputmode="numeric" id="s-query_max_bytes" placeholder="1048576"/>
+                </label>
+                <label>Requête Lucene : imbrication maximale (parenthèses) <code>query_max_depth</code> — 1 à 100 000
+                  <input type="text" inputmode="numeric" id="s-query_max_depth" placeholder="30"/>
+                </label>
+                <label>Requête ES|QL : taille maximale, en octets <code>esql_max_bytes</code> — ajouts de l'app compris (1 024 à 1 000 000)
+                  <input type="text" inputmode="numeric" id="s-esql_max_bytes" placeholder="65536"/>
+                </label>
+                <label>Requête ES|QL : imbrication maximale (parenthèses) <code>esql_max_depth</code> — 1 à 400
+                  <input type="text" inputmode="numeric" id="s-esql_max_depth" placeholder="100"/>
+                </label>
+                <label>ES|QL : valeurs d'un lookup inséré dans la requête <code>esql_lookup_values_max</code> — lookup_stage=result ou marqueur $$lookup$$ (1 à 65 536)
+                  <input type="text" inputmode="numeric" id="s-esql_lookup_values_max" placeholder="1000"/>
+                </label>
+                <label>Plafond d'une réponse d'Elasticsearch, en Mo décompressés <code>max_response_mb</code>
+                  <input type="text" inputmode="numeric" id="s-max_response_mb" placeholder="256"/>
+                </label>
+                <label>Plafond du délai de lecture, en secondes <code>max_timeout_read</code>
+                  <input type="text" inputmode="numeric" id="s-max_timeout_read" placeholder="300"/>
+                </label>
+                <p class="esearch-note">Contrôlées avant tout envoi, par la commande et par le proxy. Défauts mesurés sur un cluster de test (tas de 512 Mo) : une requête Lucene de 4 Mo ou de ~3 000 niveaux de parenthèses, une requête ES|QL dès 10 Ko, ont arrêté un nœud. À baisser si un nœud tombe, à relever pour un cluster plus robuste (OPERATIONS § 10.13, § 10.15).</p>
+              </fieldset>
+              <fieldset class="esearch-carte">
+                <legend>ES|QL (esql=)</legend>
+                <label>Colonnes <code>X.keyword</code> doublant une colonne X <code>esql_hide_keyword</code> — surchargeable par profil
+                  <select id="s-esql_hide_keyword"><option value="true">masquées (défaut, comme Discover de Kibana)</option><option value="false">toutes rendues</option></select>
+                </label>
+                <label>Asynchrone : attente par interrogation <code>esql_async_wait</code> — profils en mode asynchrone (durée : 10s, 30s…)
+                  <input type="text" id="s-esql_async_wait" placeholder="10s"/>
+                </label>
+                <label>Asynchrone : conservation du résultat côté Elasticsearch <code>esql_async_keep_alive</code>
+                  <input type="text" id="s-esql_async_keep_alive" placeholder="5m"/>
+                </label>
+                <label>Asynchrone : durée maximale d'une requête, en secondes <code>esql_async_max</code> — au-delà, elle est annulée (10 à 86 400)
+                  <input type="text" inputmode="numeric" id="s-esql_async_max" placeholder="1800"/>
+                </label>
+              </fieldset>
+              <fieldset class="esearch-carte">
+                <legend>Lookups et données</legend>
+                <label>Colonnes de lookup jamais utilisées comme filtre <code>lookup_fields_ignore</code> — noms séparés par des virgules, motifs * admis ; les colonnes _* le sont toujours
+                  <input type="text" id="s-lookup_fields_ignore" placeholder="commentaire, description, date_*"/>
+                </label>
+                <label>Champs host / source / sourcetype venant d'Elasticsearch <code>sanitize_metadata_fields</code>
+                  <select id="s-sanitize_metadata_fields"><option value="false">conservés tels quels (défaut) — ES fixe le host de l'événement</option><option value="true">préfixés es_ — les métadonnées Splunk ne sont pas écrasées</option></select>
+                </label>
+              </fieldset>
+              <fieldset class="esearch-carte">
+                <legend>Mode ad hoc (es_host= en SPL)</legend>
+                <label>Mode ad hoc <code>allow_adhoc_host</code> — interroger une URL sans profil
+                  <select id="s-allow_adhoc_host"><option value="true">autorisé</option><option value="false">désactivé (recommandé)</option></select>
+                </label>
+                <label>Vérification TLS du mode ad hoc <code>verify_certs</code>
+                  <select id="s-verify_certs"><option value="true">activée</option><option value="false">désactivée</option></select>
+                </label>
+              </fieldset>
+              <fieldset class="esearch-carte">
+                <legend>Journal et debug</legend>
+                <label>Niveau de log global <code>log_level</code>
+                  <select id="s-log_level"><option value="INFO">INFO</option><option value="DEBUG">DEBUG</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option></select>
+                </label>
+                <label>Ce qu'écrit une recherche lancée avec debug=true <code>debug_search_scope</code>
+                  <select id="s-debug_search_scope"><option value="query">la requête envoyée à Elasticsearch seulement</option><option value="all">toutes les lignes de la recherche</option></select>
+                </label>
+                <label>Éléments d'une liste terms montrés dans la requête affichée, la suite résumée « [...] et X de plus » <code>debug_terms_max</code>
+                  <input type="text" inputmode="numeric" id="s-debug_terms_max" placeholder="100"/>
+                </label>
+                <label>Détection de version ES à chaque recherche <code>detect_version</code>
+                  <select id="s-detect_version"><option value="false">désactivée (recommandé)</option><option value="true">activée</option></select>
+                </label>
+              </fieldset>
+            </div>
+            <div class="esearch-actions">
+              <button type="button" id="s-save" class="btn-primary">Enregistrer les réglages</button>
+            </div>
+            <div id="esearch-msg-settings" class="esearch-msg" style="display:none"></div>
+          </div>
+        </div>
+      </html>
+    </panel>
+  </row>
+</dashboard>

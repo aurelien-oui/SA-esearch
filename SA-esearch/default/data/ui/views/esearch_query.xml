@@ -1,0 +1,211 @@
+<form version="1.1" script="esearch_query.js">
+  <label>Elasticsearch Query</label>
+  <description>Interroger Elasticsearch en direct, sans indexer, via un profil de connexion.</description>
+
+  <!-- Le formulaire est en autoRun="false" : ses recherches GLOBALES attendent
+       le premier Submit. Ce qui doit être prêt à l'ouverture (bandeau « aucun
+       profil », valeur par défaut de la Limite) passe donc par les recherches
+       qui PEUPLENT les menus, elles lancées dès le chargement. Jusqu'en 1.10.0,
+       deux recherches globales s'en chargeaient : default_limit ne s'appliquait
+       qu'après le premier Submit, et le bandeau n'apparaissait qu'après. -->
+
+  <fieldset submitButton="true" autoRun="false">
+    <!-- Les profils sont déclarés par un admin (onglet Configuration) : l'utilisateur
+         choisit un profil, il n'a jamais à connaître l'hôte ni le secret.
+         | esprofiles ne liste que les profils qu'il PEUT utiliser (allowed_roles,
+         contrôlés par le proxy), dans l'ordre fixé par l'administrateur : le
+         premier, présélectionné, est celui d'une recherche sans profile=. -->
+    <input type="dropdown" token="profile" searchWhenChanged="false">
+      <label>Profil</label>
+      <search id="esearch_profils">
+        <query>| esprofiles | sort rang | fields profile libelle</query>
+        <!-- Aucun profil : bandeau d'aide plutôt qu'un formulaire inutilisable. -->
+        <done>
+          <condition match="$job.resultCount$ == 0">
+            <set token="aucun_profil">true</set>
+          </condition>
+          <condition>
+            <unset token="aucun_profil"></unset>
+          </condition>
+        </done>
+      </search>
+      <fieldForLabel>libelle</fieldForLabel>
+      <fieldForValue>profile</fieldForValue>
+      <selectFirstChoice>true</selectFirstChoice>
+    </input>
+    <!-- Cibles interrogeables du profil sélectionné (index, alias, data
+         streams), listées via | esindices : la recherche se relance à chaque
+         changement de profil. Liste ÉDITABLE, comme la Limite : un motif
+         (logs-*, a,b) se tape directement dans le menu. Si le listing échoue
+         (clé sans droit monitor, cluster injoignable), il reste « * » et la
+         saisie libre.
+
+         Ne PAS calculer le token de la recherche dans un <change> : un <set>
+         y écrit AUSSI le token soumis, si bien que le tableau se relançait sans
+         Submit, avec le nouvel index mais l'ancien profil et l'ancienne
+         période (1.13.0, constaté). Ni par une sous-recherche `| return` :
+         elle réécrit la valeur dans le SPL SANS l'échapper (injection).
+
+         « * » interroge tout ce que la clé du profil peut lire, PAS le seul
+         index_pattern du profil, qui ne fait que filtrer cette liste. -->
+    <!-- Langage de la requête (1.24.0). Le <change> ne fait qu'AFFICHER les
+         champs du langage choisi (vue_lucene / vue_esql, lus par les depends
+         des champs, par aucune recherche). Quelle recherche tourne se décide à
+         la SOUMISSION : esearch_query.js pose exec_lucene / exec_esql d'après le
+         langage soumis — changer de langage ne relance rien sans Submit
+         (cf. menu Index ci-dessous). -->
+    <input type="radio" token="langage" searchWhenChanged="false">
+      <label>Langage</label>
+      <choice value="lucene">Lucene (query_string)</choice>
+      <choice value="esql">ES|QL — Elasticsearch 8.11+</choice>
+      <default>lucene</default>
+      <change>
+        <condition value="esql">
+          <set token="vue_esql">true</set>
+          <unset token="vue_lucene"></unset>
+        </condition>
+        <condition>
+          <set token="vue_lucene">true</set>
+          <unset token="vue_esql"></unset>
+        </condition>
+      </change>
+    </input>
+    <input type="dropdown" token="index" searchWhenChanged="false" depends="$vue_lucene$">
+      <label>Index (choisir, ou taper un motif : logs-*, a,b)</label>
+      <search>
+        <query>| esindices profile=$profile|s$</query>
+      </search>
+      <fieldForLabel>index</fieldForLabel>
+      <fieldForValue>index</fieldForValue>
+      <choice value="*">* (tout ce que le profil peut lire)</choice>
+      <default>*</default>
+      <allowCustomValues>true</allowCustomValues>
+    </input>
+    <input type="text" token="query" depends="$vue_lucene$">
+      <label>Requête (syntaxe query_string)</label>
+      <default>*</default>
+    </input>
+    <!-- ES|QL : l'index se choisit dans FROM ; les chaînes s'écrivent entre
+         guillemets doubles, saisis tels quels ici (le filtre |s les échappe). -->
+    <input type="text" token="esql" depends="$vue_esql$">
+      <label>Requête ES|QL (FROM index | WHERE … | STATS …)</label>
+      <default>FROM * | STATS n = COUNT(*)</default>
+    </input>
+    <!-- Liste ÉDITABLE : en tête [settings] default_limit, puis quelques valeurs
+         usuelles ; toute autre valeur se tape directement (« new value »).
+         Peuplée dès l'ouverture, elle applique default_limit sans attendre le
+         premier Submit, et une limite portée par l'URL (rechargement, lien
+         partagé) est conservée. Sans effet sur la SPL, qui porte son propre
+         limit= ; toujours bornée par max_limit côté commande. -->
+    <input type="dropdown" token="limit" searchWhenChanged="false">
+      <label>Limite (nombre de résultats)</label>
+      <search>
+        <query>| rest /servicesNS/nobody/SA-esearch/configs/conf-esearch splunk_server=local
+| search title=settings
+| eval limite=coalesce(default_limit, "100")
+| fields limite
+| append [| makeresults | eval limite=split("100,1000,10000", ",") | mvexpand limite | fields limite]
+| dedup limite</query>
+      </search>
+      <fieldForLabel>limite</fieldForLabel>
+      <fieldForValue>limite</fieldForValue>
+      <allowCustomValues>true</allowCustomValues>
+      <selectFirstChoice>true</selectFirstChoice>
+    </input>
+    <input type="time" token="time_range" searchWhenChanged="false">
+      <label>Période</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <!-- Debug de CETTE recherche (debug=true) : la requête réellement envoyée à
+         Elasticsearch s'affiche sous les résultats (esearch_query.js, qui la
+         lit dans les messages du job). L'étiquette n'apparaît qu'en debug ; son
+         affichage passe par debug_actif, que NULLE recherche ne lit (cf. menu
+         Index ci-dessus). -->
+    <input type="radio" token="debug" searchWhenChanged="false">
+      <label>Debug (montre la requête envoyée à Elasticsearch)</label>
+      <choice value="false">Non</choice>
+      <choice value="true">Oui</choice>
+      <default>false</default>
+      <change>
+        <condition value="true">
+          <set token="debug_actif">true</set>
+        </condition>
+        <condition>
+          <unset token="debug_actif"></unset>
+        </condition>
+      </change>
+    </input>
+    <input type="text" token="debug_tag" depends="$debug_actif$" searchWhenChanged="false">
+      <label>Étiquette (facultative, pour retrouver la recherche dans les journaux)</label>
+      <default></default>
+    </input>
+  </fieldset>
+
+  <row depends="$aucun_profil$">
+    <panel>
+      <html>
+        <div class="alert alert-warning" style="margin:0">
+          <b>Aucun profil de connexion ne vous est accessible.</b>
+          <p style="margin:.5em 0 0">
+            Soit aucun profil n'est encore déclaré, soit aucun ne vous est ouvert.
+            Un administrateur les gère depuis l'onglet <b>Configuration</b>
+            (hôte Elasticsearch, TLS, secret éventuel et rôles autorisés).
+          </p>
+          <!-- Cause précise, rendue par esearch_query.js d'après le message de
+               | esprofiles (capability esearch_run manquante, 1.26.0). -->
+          <p id="esearch-cause-profils" style="margin:.5em 0 0;display:none"></p>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <row depends="$profile$,$exec_lucene$">
+    <panel>
+      <table>
+        <!-- Filtre |s : les valeurs saisies sont citées/échappées par Splunk
+             (pas de concaténation brute dans le SPL). -->
+        <search id="esearch_recherche" depends="$exec_lucene$">
+          <query>| esearch profile=$profile|s$ index=$index|s$ query=$query|s$ limit=$limit|s$ debug=$debug|s$ debug_tag=$debug_tag|s$</query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+
+  <row depends="$profile$,$exec_esql$">
+    <panel>
+      <table>
+        <search id="esearch_recherche_esql" depends="$exec_esql$">
+          <!-- Sans _raw : chaque colonne ES|QL est déjà affichée, _raw la répétait
+               en JSON (et seul, sur un résultat STATS sans _time). -->
+          <query>| esearch profile=$profile|s$ esql=$esql|s$ limit=$limit|s$ debug=$debug|s$ debug_tag=$debug_tag|s$ | fields - _raw</query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- Rempli par esearch_query.js en mode debug : la requête envoyée, telle que
+       la commande l'a montrée en warning (listes terms et chaînes très longues
+       déjà abrégées, « [...] et X de plus »). Vide et masqué sinon. -->
+  <row depends="$profile$">
+    <panel>
+      <html>
+        <div id="esearch-requete" style="display:none">
+          <h3 style="margin-top:0">Requête envoyée à Elasticsearch</h3>
+          <div id="esearch-requete-ligne" style="font-family:monospace;font-weight:bold"></div>
+          <pre id="esearch-requete-corps" style="white-space:pre-wrap;max-height:30em;overflow:auto"></pre>
+        </div>
+      </html>
+    </panel>
+  </row>
+</form>

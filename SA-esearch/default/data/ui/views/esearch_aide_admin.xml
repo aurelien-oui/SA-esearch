@@ -1,0 +1,121 @@
+<dashboard version="1.1">
+  <label>Aide administrateur</label>
+  <description>Ce qui se règle dans la page Configuration, les aides au dépannage et les versions prises en charge.</description>
+
+  <!-- Documentation administrateur (1.26.2, regroupée en 1.26.3). Lisible par
+       les seuls rôles de la page Configuration (metadata/default.meta) ; absente
+       du menu des autres (collection de navigation). Texte statique, organisé
+       comme la page Configuration : blocs de l'éditeur de profil, puis cartes
+       des réglages globaux : chaque réglage et chaque champ de profil de la
+       spec y figure. Guide complet : OPERATIONS.md,
+       livré dans l'app (docs/). -->
+  <row>
+    <panel>
+      <html>
+        <h2>Onglet Profils</h2>
+        <p>Un profil = un Elasticsearch, une identité, et les rôles Splunk qui l'utilisent. Toute recherche par profil passe par le proxy REST de l'app, qui contrôle l'accès avant de lire le secret ; le secret n'est jamais renvoyé.</p>
+        <table class="table table-condensed table-striped">
+          <thead><tr><th>Bloc</th><th>Clé</th><th>À savoir</th></tr></thead>
+          <tbody>
+            <tr><td rowspan="3">Connexion</td><td><code>es_host</code></td><td>URL complète : <code>https://es.example.com:9200</code>. En <code>http://</code>, un secret circule en clair : la page et chaque recherche l'avertissent</td></tr>
+            <tr><td><code>timefield</code></td><td>champ date qui borne la période et donne <code>_time</code> (défaut <code>@timestamp</code>). Mappé en <code>date</code> avec doc values dans tous les index visés, il est décodé par Elasticsearch selon le format du mapping ; sinon, l'app lit ISO 8601 et époques</td></tr>
+            <tr><td><code>index_pattern</code></td><td>cibles proposées par le menu Index (<code>| esindices</code>). <b>Pas</b> un contrôle d'accès : seuls les droits de l'identité côté Elasticsearch en sont un</td></tr>
+            <tr><td rowspan="4">TLS et certificats</td><td><code>verify_certs</code></td><td>vérification du certificat du serveur de CE profil (laisser activée hors environnement de test). Le réglage global du même nom ne vaut que pour le mode ad hoc</td></tr>
+            <tr><td><code>ca_file</code></td><td>bundle CA (PEM). Sans lui, le bundle embarqué de l'app ; l'environnement de splunkd (<code>REQUESTS_CA_BUNDLE</code>…) n'est pas suivi</td></tr>
+            <tr><td><code>client_cert</code></td><td rowspan="2">mTLS : certificat et clé client PEM, clé <b>non chiffrée</b>. Ranger ces fichiers sous <code>$$SPLUNK_HOME/etc/auth/esearch/</code>, jamais dans l'app (remplacée à chaque mise à jour)</td></tr>
+            <tr><td><code>client_key</code></td></tr>
+            <tr><td rowspan="2">Authentification</td><td><code>auth_type</code></td><td><code>none</code>, <code>basic</code> (identifiant + mot de passe) ou <code>apikey</code> (valeur « encoded » de la clé). Le secret est chiffré dans <code>storage/passwords</code>, mis à jour en place</td></tr>
+            <tr><td><code>username</code></td><td>identifiant du mode <code>basic</code></td></tr>
+            <tr><td>Accès (obligatoire)</td><td><code>allowed_roles</code></td><td>administrateurs seulement, tous les porteurs d'<code>esearch_run</code> (<code>*</code>), ou des rôles cochés (hérités compris). Les administrateurs passent toujours — donc aussi les recherches planifiées de propriétaire <code>nobody</code>. La vraie limite se pose côté Elasticsearch, dans les droits de la clé</td></tr>
+            <tr><td rowspan="4">Recherche</td><td><code>pagination</code></td><td>ne joue qu'au-delà de 10 000 résultats. <code>auto</code> (défaut) : PIT, la pagination recommandée d'Elasticsearch, avec repli automatique sur <code>scroll</code> si le cluster ne la connaît pas (ES &lt; 7.10, OpenSearch) ; <code>pit</code> : PIT seulement, en erreur sinon ; <code>scroll</code> : ancienne API, pour les vieux clusters</td></tr>
+            <tr><td><code>max_limit</code></td><td>plafond de résultats propre à ce profil (vide : le plafond global)</td></tr>
+            <tr><td><code>esql_mode</code></td><td><code>sync</code> (défaut) : une seule requête, qui doit finir dans le délai de lecture (<code>max_timeout_read</code>). <code>async</code> : pour les requêtes ES|QL longues — lancée en tâche de fond côté Elasticsearch, Splunk vérifie toutes les <code>esql_async_wait</code> si elle est finie et l'annule au-delà de <code>esql_async_max</code>. Elasticsearch 8.13 minimum</td></tr>
+            <tr><td><code>esql_hide_keyword</code></td><td>comme le réglage global du même nom ; vide = réglage global</td></tr>
+          </tbody>
+        </table>
+        <p><b>Profil par défaut</b> (<code>profile_order</code>) : une recherche sans <code>profile=</code> prend le premier profil de cet ordre que l'utilisateur peut utiliser. <b>Vérifier</b> : montre les profils ouverts à un jeu de rôles. <b>Secrets orphelins</b> : secrets restés sans profil, à purger. Deux administrateurs sur un même profil : la dernière modification gagne.</p>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <h2>Onglet Réglages globaux</h2>
+        <table class="table table-condensed table-striped">
+          <thead><tr><th>Carte</th><th>Clé</th><th>Défaut</th><th>Rôle, conseil</th></tr></thead>
+          <tbody>
+            <tr><td rowspan="4">Résultats et pagination</td><td><code>max_limit</code></td><td>50000</td><td>plafond de résultats d'une recherche, quel que soit <code>limit=</code></td></tr>
+            <tr><td><code>default_limit</code></td><td>100</td><td>limite proposée par la page Query (sans effet sur la SPL)</td></tr>
+            <tr><td><code>pagination</code></td><td>auto</td><td>défaut des profils (voir le bloc Recherche d'un profil)</td></tr>
+            <tr><td><code>page_keep_alive</code></td><td>2m</td><td>durée de vie du contexte de pagination entre deux pages ; à augmenter si « le contexte de pagination a expiré »</td></tr>
+            <tr><td rowspan="7">Protections du cluster et du search head</td><td><code>query_max_bytes</code></td><td>1 Mio</td><td>taille maximale (octets) d'une requête Lucene <code>query=</code>, lookups insérés compris, contrôlée avant envoi. Jusqu'à 2 Gio</td></tr>
+            <tr><td><code>query_max_depth</code></td><td>30</td><td>imbrication maximale (parenthèses) d'une requête Lucene. Jusqu'à 100 000</td></tr>
+            <tr><td><code>esql_max_bytes</code></td><td>65536</td><td>taille maximale (octets) d'une requête ES|QL <code>esql=</code>, contrôlée avant envoi. Au plus 1 000 000, la limite d'Elasticsearch</td></tr>
+            <tr><td><code>esql_max_depth</code></td><td>100</td><td>imbrication maximale (parenthèses) d'une requête ES|QL. Au plus 400, la limite d'Elasticsearch</td></tr>
+            <tr><td><code>esql_lookup_values_max</code></td><td>1000</td><td>valeurs d'un lookup inséré dans une requête ES|QL (<code>lookup_stage=result</code>, marqueur <code>$$lookup$$</code>) ; au-delà, refus qui renvoie au filtre des documents</td></tr>
+            <tr><td><code>max_response_mb</code></td><td>256</td><td>taille maximale d'une réponse d'Elasticsearch, décompressée (une page de recherche, une réponse ES|QL). Protège le search head d'une réponse hostile ; à relever si « réponse trop volumineuse » sur des documents légitimement gros</td></tr>
+            <tr><td><code>max_timeout_read</code></td><td>300</td><td>délai de lecture maximal (s) qu'une recherche peut demander (<code>timeout_read=</code>)</td></tr>
+            <tr><td rowspan="4">ES|QL</td><td><code>esql_hide_keyword</code></td><td>true</td><td>un champ texte indexé avec un sous-champ <code>keyword</code> sort en ES|QL sous deux colonnes à la même valeur, <code>X</code> et <code>X.keyword</code> ; <code>true</code> masque <code>X.keyword</code> quand <code>X</code> est présente, comme Discover de Kibana</td></tr>
+            <tr><td><code>esql_async_wait</code></td><td>10s</td><td>mode asynchrone : attente de chaque vérification « la requête est-elle finie ? »</td></tr>
+            <tr><td><code>esql_async_keep_alive</code></td><td>5m</td><td>mode asynchrone : conservation du résultat côté Elasticsearch, s'il n'est pas lu (recherche interrompue)</td></tr>
+            <tr><td><code>esql_async_max</code></td><td>1800</td><td>mode asynchrone : durée maximale (s) d'une requête ; au-delà, elle est annulée et la recherche le dit</td></tr>
+            <tr><td rowspan="2">Lookups et données</td><td><code>lookup_fields_ignore</code></td><td>—</td><td>colonnes de lookup jamais utilisées comme filtre, pour toutes les recherches (motifs <code>*</code> ; les colonnes <code>_*</code> le sont toujours)</td></tr>
+            <tr><td><code>sanitize_metadata_fields</code></td><td>false</td><td><code>true</code> : les champs <code>host</code>, <code>source</code>, <code>sourcetype</code> d'un document sont préfixés <code>es_</code> au lieu de remplacer les métadonnées de l'événement Splunk. À décider au déploiement : renomme des champs</td></tr>
+            <tr><td rowspan="2">Mode ad hoc</td><td><code>allow_adhoc_host</code></td><td>false</td><td>autorise <code>es_host=&lt;URL&gt;</code> dans une recherche, pour interroger un Elasticsearch <b>sans profil</b> : aucun contrôle par rôle, identifiants éventuels en clair dans la recherche, et tout utilisateur peut faire contacter n'importe quelle URL par le search head. À laisser à <code>false</code> en production</td></tr>
+            <tr><td><code>verify_certs</code></td><td>true</td><td>vérification TLS du mode ad hoc <b>seulement</b> ; chaque profil a la sienne</td></tr>
+            <tr><td rowspan="4">Journal et debug</td><td><code>log_level</code></td><td>INFO</td><td>niveau du journal <code>esearch.log</code> (<code>index=_internal sourcetype=esearch:log</code>)</td></tr>
+            <tr><td><code>debug_search_scope</code></td><td>query</td><td>ce qu'écrit une recherche lancée avec <code>debug=true</code> : la seule requête envoyée (<code>query</code>) ou toutes ses lignes (<code>all</code>)</td></tr>
+            <tr><td><code>debug_terms_max</code></td><td>100</td><td>valeurs d'une liste montrées dans la requête affichée, la suite résumée « [...] et X de plus »</td></tr>
+            <tr><td><code>detect_version</code></td><td>false</td><td>journalise la version du cluster à chaque recherche (un aller-retour de plus) ; pour diagnostiquer</td></tr>
+          </tbody>
+        </table>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <h2>Dépannage</h2>
+        <table class="table table-condensed table-striped">
+          <thead><tr><th>Symptôme</th><th>Que faire</th></tr></thead>
+          <tbody>
+            <tr><td>Nœud Elasticsearch tombé ou saturé après une recherche</td><td><b>baisser</b> les réglages de la carte « Protections » (tailles et imbrications des requêtes, valeurs d'un lookup inséré) et <code>max_limit</code>. Les défauts sont mesurés sur un tas de 512 Mo : à adapter au cluster, dans les deux sens. Une recherche partie sans réponse n'est jamais rejouée</td></tr>
+            <tr><td>Requêtes coûteuses (joker en tête <code>*abc</code>)</td><td>l'app ne les borne pas. Côté cluster, <code>allow_leading_wildcard</code> à false les refuse (mesuré) ; son défaut se règle sur les nœuds (<code>indices.query.query_string.allowLeadingWildcard</code>, non mesuré). <code>search.allow_expensive_queries: false</code> ne s'applique <b>pas</b> au joker d'une <code>query_string</code> (mesuré). Détail : OPERATIONS</td></tr>
+            <tr><td>« le contexte de pagination a expiré »</td><td>augmenter <code>page_keep_alive</code></td></tr>
+            <tr><td>Délai dépassé sur une requête ES|QL longue</td><td>profil en <code>esql_mode = async</code> (8.13+), ou relever <code>max_timeout_read</code></td></tr>
+            <tr><td>Mémoire du search head élevée pendant une grosse recherche</td><td>une recherche <code>query=</code> garde tous ses résultats en mémoire avant de les rendre à Splunk, environ 11 fois leur volume brut (mesuré : 1,2 Go pour 10 000 documents de 10 Ko). Sur des documents volumineux, <b>baisser</b> <code>max_limit</code> (global ou du profil), préférer <code>STATS</code> en ES|QL ou <code>_source_include</code>. Détail : OPERATIONS § 10.17</td></tr>
+            <tr><td>« champ date … en texte », « absent de … », « en entier court », « sort=… impossible »</td><td>le champ date n'est pas une date (<code>date</code>, <code>date_nanos</code>) dans les index nommés : période peu fiable ou impossible, tri refusé quand Elasticsearch ne saurait pas le faire. Remède durable : le mapper en <code>date</code> (modèle d'index, réindexation) ; sinon viser des index cohérents, ou préciser <code>timefield=</code>. Les dates en secondes (<code>long</code>) sont prises en compte avec <code>query=</code>. Détail : OPERATIONS § 10.18</td></tr>
+            <tr><td>« N événement(s) sur M sans date lisible »</td><td>champ date absent, multivalué ou dans un format non reconnu : <code>_time</code> vide, ignorés par <code>timechart</code> et <code>bin</code></td></tr>
+            <tr><td>« réponse trop volumineuse »</td><td>réduire la page (<code>limit</code>, <code>_source_include</code>) ou relever <code>max_response_mb</code></td></tr>
+            <tr><td>Utilisateur sans profil / « capability esearch_run requise »</td><td>lui donner le rôle <code>esearch_user</code>, ou ouvrir un profil à l'un de ses rôles</td></tr>
+            <tr><td>Menu Index réduit à « * »</td><td>l'identité du profil n'a pas le droit <code>monitor</code> (listing) ; la saisie libre reste possible</td></tr>
+            <tr><td>Erreurs TLS</td><td>le message nomme la cause (CA manquante, nom d'hôte, certificat expiré, certificat client refusé ou absent) ; détail dans <code>esearch.log</code></td></tr>
+            <tr><td>401 / 403 d'Elasticsearch</td><td>401 : clé révoquée ou expirée, ou saisie sous la forme « id:api_key » — le secret doit être la valeur « encoded » ; 403 : droits de l'identité sur l'index</td></tr>
+            <tr><td>Proxy ou CA de l'environnement de splunkd ignorés</td><td>voulu : renseigner <code>ca_file</code> dans le profil ; l'app n'a pas de réglage de proxy sortant</td></tr>
+            <tr><td>Page Configuration : « session expirée », « splunkd ne répond pas »</td><td>se reconnecter ; recharger la page pour vérifier ce qui a été enregistré</td></tr>
+          </tbody>
+        </table>
+        <p>Restreindre l'usage à certains utilisateurs : <code>[role_user] esearch_run = disabled</code> dans <code>local/authorize.conf</code>, puis le rôle <code>esearch_user</code> aux utilisateurs voulus.</p>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <h2>Versions</h2>
+        <table class="table table-condensed table-striped">
+          <thead><tr><th>Composant</th><th>Pris en charge</th><th>À savoir</th></tr></thead>
+          <tbody>
+            <tr><td>Splunk Enterprise</td><td>9.x (Python 3.9), 10.x (Python 3.13)</td><td>testé sur 9.3.14 et 10.4.1 ; Splunk Cloud non visé</td></tr>
+            <tr><td>Elasticsearch, <code>query=</code></td><td>7.x (scroll), 7.10+ (PIT), 8.x, 9.x</td><td>testé 7.17, 8.11, 8.17, 9.5 ; repli PIT → scroll automatique</td></tr>
+            <tr><td>OpenSearch, <code>query=</code></td><td>1.x, 2.x, 3.x (scroll)</td><td>query_string limitée à 32 000 caractères par défaut (<code>search.query.max_query_string_length</code>, réglage du cluster)</td></tr>
+            <tr><td>ES|QL, <code>esql=</code></td><td>Elasticsearch <b>8.11+</b> (8.14 stable)</td><td>refus explicite sur 7.x, ≤ 8.10 et OpenSearch ; asynchrone 8.13+ ; lookups insérés 8.15+ ; casse ignorée sur valeur multivaluée 8.19 et 9.1+ ; <code>date_nanos</code> 8.17+, <code>flattened</code> 9.5+ ; <code>METADATA</code> entre crochets en 8.11–8.12, sans à partir de 8.13</td></tr>
+          </tbody>
+        </table>
+      </html>
+    </panel>
+  </row>
+</dashboard>

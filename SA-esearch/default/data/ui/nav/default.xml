@@ -1,0 +1,14 @@
+<nav search_view="search">
+  <view name="esearch_query" default="true"/>
+  <view name="esearch_aide"/>
+  <!-- Page Configuration : PAS d'entrée nommée. Une vue nommée ici s'affiche
+       dans le menu même pour qui n'a pas le droit de la lire (elle menait alors
+       à une 404). Une collection par source n'est construite qu'à partir des
+       vues accessibles : la page n'apparaît qu'aux rôles qui la lisent
+       (admin, et sc_admin sur Splunk Cloud — metadata/default.meta).
+       match= est INDISPENSABLE : sans lui, la collection reprend aussi toute
+       vue partagée globalement par une autre app (l'app Search en exporte une
+       à tous les rôles) — elle apparaissait dans ce menu (1.12.0 à 1.13.0). -->
+  <view source="unclassified" match="esearch_"/>
+  <view name="search"/>
+</nav>
